@@ -7,6 +7,7 @@
 //
 
 mod audio;
+mod net;
 use tokio::sync::mpsc::{Sender, Receiver};
 use crate::audio::audio_loop; 
 

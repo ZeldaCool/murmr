@@ -51,16 +51,34 @@ pub fn audio_loop() -> anyhow::Result<()>  {
     Ok(())
 }
 
-pub fn audio_input(tx: Sender<Vec<f32>> ) -> anyhow::Result<()> {
+pub fn audio_input(tx: Sender<Vec<f32>>) {
     let host = cpal::default_host();
     let inputdev = host.default_input_device();
 
-    let config: cpal::StreamConfig = inputdev.clone().expect("failed to get device.").default_input_config()?.into();
+    let config: cpal::StreamConfig = inputdev.clone().expect("failed to get device.").default_input_config().expect("Failed to get config.").into();
 
     let inputfn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             let to_send = data.to_vec();
             tx.send(to_send);
     };
 
-    Ok(())
+    let input_stream = inputdev.as_ref().expect("Got Option::None").build_input_stream(&config, inputfn, err_fn, None).expect("Failure when trying to build input stream.");
+
+}
+
+pub fn audio_output(mut consumer: impl ringbuf::traits::Consumer<Item = f32> + std::marker::Send + 'static) {
+    let host = cpal::default_host();
+    let outdev = host.default_output_device();
+
+    let config: cpal::StreamConfig = outdev.clone().expect("failed to get device.").default_output_config().expect("Failed to get config.").into();
+
+    let outputfn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+        for sample in data {
+            *sample = consumer.try_pop().unwrap_or(0.0);
+        }
+    };
+
+
+    let output_stream = outdev.as_ref().expect("Got Option::None").build_output_stream(&config, outputfn, err_fn, None).expect("Failure when trying to build output stream.");
+
 }
