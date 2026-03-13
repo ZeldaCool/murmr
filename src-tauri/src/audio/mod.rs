@@ -3,6 +3,7 @@ use ringbuf::{
     traits::{Consumer, Producer, Split},
     HeapRb,
 };
+use std::sync::mpsc::{channel, Sender, Receiver};
 
 
 pub fn err_fn(err: cpal::StreamError) {
@@ -46,6 +47,20 @@ pub fn audio_loop() -> anyhow::Result<()>  {
     drop(input_stream);
     drop(output_stream);
     println!("Done!");
+
+    Ok(())
+}
+
+pub fn audio_input(tx: Sender<Vec<f32>> ) -> anyhow::Result<()> {
+    let host = cpal::default_host();
+    let inputdev = host.default_input_device();
+
+    let config: cpal::StreamConfig = inputdev.clone().expect("failed to get device.").default_input_config()?.into();
+
+    let inputfn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+            let to_send = data.to_vec();
+            tx.send(to_send);
+    };
 
     Ok(())
 }
