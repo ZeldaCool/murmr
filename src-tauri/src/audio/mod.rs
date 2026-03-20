@@ -3,8 +3,9 @@ use ringbuf::{
     traits::{Consumer, Producer, Split},
     HeapRb,
 };
+use bytemuck::cast_slice;
 use std::sync::mpsc::{channel, Sender, Receiver};
-
+use serde::{Deserialize, Serialize};
 
 pub fn err_fn(err: cpal::StreamError) {
     eprintln!("an error occurred on stream: {err}");
@@ -26,7 +27,7 @@ pub fn audio_loop() -> anyhow::Result<()>  {
 
     let inputfn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
          for &sample in data {
-            producer.try_push(sample);
+            let _ = producer.try_push(sample);
         }
     };
 
@@ -42,8 +43,8 @@ pub fn audio_loop() -> anyhow::Result<()>  {
     input_stream.play()?;
     output_stream.play()?;
 
-    println!("Playing for 10 seconds... ");
-    std::thread::sleep(std::time::Duration::from_secs(10));
+    println!("Playing... ");
+    std::thread::sleep(std::time::Duration::from_secs(999));
     drop(input_stream);
     drop(output_stream);
     println!("Done!");
@@ -51,19 +52,46 @@ pub fn audio_loop() -> anyhow::Result<()>  {
     Ok(())
 }
 
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PacketLayout {
+    //header portion
+    payloadkind: u8,
+    //seqnum: u16,
+    //for now, just payloadkind. I'm lazy, alright??????
+    //nonce: [u8; 24],
+    //payload(CRAZY NOT LIKE THAT'S VAR NAME...)
+    payload: Vec<f32>, 
+
+}
+
 pub fn audio_input(tx: Sender<Vec<f32>>) {
     let host = cpal::default_host();
     let inputdev = host.default_input_device();
-
     let config: cpal::StreamConfig = inputdev.clone().expect("failed to get device.").default_input_config().expect("Failed to get config.").into();
+    
+    const SIZE: usize = 960;
+
+    let mut send_vec = Vec::with_capacity(SIZE);
 
     let inputfn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            let to_send = data.to_vec();
-            tx.send(to_send);
+            //println!("Sending data of len: {}", data.len());
+            for sample in data {
+                send_vec.push(*sample);
+
+                if send_vec.len() == SIZE {
+                    let x = send_vec.clone();
+                    let _ = tx.send(x);
+                    send_vec.clear();
+                }
+            }
     };
 
     let input_stream = inputdev.as_ref().expect("Got Option::None").build_input_stream(&config, inputfn, err_fn, None).expect("Failure when trying to build input stream.");
 
+    input_stream.play().expect("Failed to start input.");
+
+    std::thread::sleep(std::time::Duration::from_secs(999));
 }
 
 pub fn audio_output(mut consumer: impl ringbuf::traits::Consumer<Item = f32> + std::marker::Send + 'static) {
@@ -71,14 +99,19 @@ pub fn audio_output(mut consumer: impl ringbuf::traits::Consumer<Item = f32> + s
     let outdev = host.default_output_device();
 
     let config: cpal::StreamConfig = outdev.clone().expect("failed to get device.").default_output_config().expect("Failed to get config.").into();
-
+    
+   
     let outputfn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+        //println!("speaker request: {}", data.len());
         for sample in data {
-            *sample = consumer.try_pop().unwrap_or(0.0);
+            *sample = consumer.try_pop().unwrap_or(0.0) * 3.0;
         }
     };
 
 
     let output_stream = outdev.as_ref().expect("Got Option::None").build_output_stream(&config, outputfn, err_fn, None).expect("Failure when trying to build output stream.");
 
+    output_stream.play().expect("Failed to start output");
+
+    std::thread::sleep(std::time::Duration::from_secs(999));
 }
