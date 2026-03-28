@@ -6,6 +6,10 @@ use ringbuf::{
 use bytemuck::cast_slice;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::Ordering::Relaxed;
+use crate::AppState;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU8};
 
 pub fn err_fn(err: cpal::StreamError) {
     eprintln!("an error occurred on stream: {err}");
@@ -65,7 +69,7 @@ pub struct PacketLayout {
 
 }
 
-pub fn audio_input(tx: Sender<Vec<f32>>) {
+pub fn audio_input(tx: Sender<Vec<f32>>, mute: Arc<AtomicBool>, vol: Arc<AtomicU8>) {
     let host = cpal::default_host();
     let inputdev = host.default_input_device();
     let config: cpal::StreamConfig = inputdev.clone().expect("failed to get device.").default_input_config().expect("Failed to get config.").into();
@@ -77,14 +81,16 @@ pub fn audio_input(tx: Sender<Vec<f32>>) {
     let inputfn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             //println!("Sending data of len: {}", data.len());
             for sample in data {
-                send_vec.push(*sample);
+                if !mute.load(Relaxed){ 
+                    send_vec.push(*sample);
 
-                if send_vec.len() == SIZE {
-                    let x = send_vec.clone();
-                    let _ = tx.send(x);
-                    send_vec.clear();
+                    if send_vec.len() == SIZE {
+                        let x = send_vec.clone();
+                        let _ = tx.send(x);
+                        send_vec.clear();
+                    }
+}
                 }
-            }
     };
 
     let input_stream = inputdev.as_ref().expect("Got Option::None").build_input_stream(&config, inputfn, err_fn, None).expect("Failure when trying to build input stream.");
