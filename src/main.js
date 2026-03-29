@@ -1,18 +1,16 @@
 const { invoke } = window.__TAURI__.core;
 
-let greetInputEl;
-let greetMsgEl;
+window.connect = async function() {
+  const ip = document.getElementById("ip").value;
+  const status = document.getElementById("status");
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsgEl.textContent = await invoke("greet", { name: greetInputEl.value });
+  status.innerText = "Connecting to peer...";
+
+  try {
+    await invoke("connect", { ip });
+    status.innerText = "Connected to peer";
+  } catch (err) {
+    status.innerText = "Error trying to connect!";
+  }
+
 }
-
-window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
-});
