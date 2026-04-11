@@ -6,7 +6,26 @@ use hkdf::Hkdf;
 
 pub mod chacha;
 
-pub fn key_exchange(soc: UdpSocket) -> anyhow::Result<[u8; 32]>  /*change to return key, [u8; 42]???*/ {
+pub fn genpub() -> PublicKey {
+    let secret = EphemeralSecret::random_from_rng(OsRng);
+    PublicKey::from(&secret)
+}
+pub fn compute_key(recvkey: PublicKey, secret: EphemeralSecret, pubkey: PublicKey) -> [u8; 32] {
+    let shared = secret.diffie_hellman(&recvkey);
+    let info = b"Murmr audio chat";
+    let salt = {
+        let mut s = [0u8; 64];
+        s[..32].copy_from_slice(pubkey.as_bytes());
+        s[32..].copy_from_slice(recvkey.as_bytes());
+        s
+    };
+    let hk = Hkdf::<Sha256>::new(Some(&salt[..]), shared.as_bytes());
+    let mut key = [0u8; 32];
+    hk.expand(info, &mut key);
+
+    key
+}
+/*pub fn key_exchange(soc: UdpSocket) -> anyhow::Result<[u8; 32]>  /*change to return key, [u8; 42]???*/ {
     let mut buf = [0u8; 4096];
     let secret = EphemeralSecret::random_from_rng(OsRng);
     let public = PublicKey::from(&secret);
@@ -29,6 +48,6 @@ pub fn key_exchange(soc: UdpSocket) -> anyhow::Result<[u8; 32]>  /*change to ret
 
 
     Ok(key)
-} 
+}*/ 
 
 

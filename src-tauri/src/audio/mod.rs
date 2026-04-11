@@ -114,7 +114,7 @@ pub fn audio_output(mut consumer: impl ringbuf::traits::Consumer<Item = f32> + s
         }
     };
 
-
+    
     let output_stream = outdev.as_ref().expect("Got Option::None").build_output_stream(&config, outputfn, err_fn, None).expect("Failure when trying to build output stream.");
 
     output_stream.play().expect("Failed to start output");

@@ -8,11 +8,23 @@
     <script type="module" src="/main.js" defer></script>
   </head>
 
-  <body>
-    <main class="container">
-      <h1>Connect Here.</h1>
+<body>
+  <div id = "conscreen"> 
+    <main class = "container">
+         <h1>Connect Here.</h1>
       <input id= "ip" placeholder="Enter an IP...." />
       <button onclick = "connect()">Connect</button>
     </main>
-  </body>
+  </div>
+
+  <div id = "callscrn" style = "display: none;">
+        <div class = "bottombar">
+          <button onclick = "mute()">Mute</button>
+          <button>Leave</button>
+          <button onclick = "volup()">Volume Up</button>
+          <button onclick = "voldown()">Volume Down</button>
+        </div>
+  </div>
+</body>
+
 </html>

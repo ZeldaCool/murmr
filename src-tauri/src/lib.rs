@@ -30,6 +30,8 @@ fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String>{
 
     let (tx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
 
+    let (crytx, cryrx) = std::sync::mpsc::channel::<[u8;32]>();
+
     let ring = HeapRb::<f32>::new(48000 * 5);
     let (mut producer, mut consumer) = ring.split();
 
@@ -53,9 +55,9 @@ fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String>{
         net::test_client();
     });
 
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    
-    audio::audio_output(consumer);
+    thread::spawn(move || {
+        audio::audio_output(consumer);
+    });
 
     Ok(())
  
