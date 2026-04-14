@@ -5,7 +5,7 @@ use std::sync::mpsc::{Sender, Receiver};
 use crate::crypto::*;
 use std::collections::BTreeMap;
 use x25519_dalek::PublicKey; 
-
+pub mod stun;
 
 pub fn test_client() -> anyhow::Result<()> {
     let socket = UdpSocket::bind("127.0.0.1:5000")?;
@@ -19,17 +19,21 @@ pub fn test_client() -> anyhow::Result<()> {
 
     Ok(())
 }
-pub fn seri_packet_audio(audio: Vec<f32>, kind: u8, seqnum: u16) -> Vec<u8> {
+pub fn seri_packet_audio(audio: Vec<f32>, kind: u8, seqnum: u16, key: [u8; 32]) -> Vec<u8> {
     
-    let slice = cast_slice(&audio);
+    let first_slice = cast_slice(&audio);
     
-    let mut buf = Vec::with_capacity(4 + slice.len());
+    let nonce = chacha::nonce_gen(); 
+    let enc_packets = chacha::chacha(key, nonce, first_slice).unwrap();
+
+
+    let mut buf = Vec::new();
 
     buf.push(kind);
     buf.push(0); //padding
     buf.extend_from_slice(&seqnum.to_le_bytes());
-
-    buf.extend_from_slice(slice);
+    buf.extend_from_slice(&nonce);
+    buf.extend_from_slice(&enc_packets);
 
     buf
 
@@ -45,25 +49,31 @@ pub fn seri_packet_crypto(key: PublicKey) -> Vec<u8>{
 
     buf
 }
-pub fn send_loop(rx: Receiver<Vec<f32>>, soc: UdpSocket) {
+pub fn send_loop(rx: Receiver<Vec<f32>>, soc: UdpSocket, cryptrx: Receiver<PublicKey>, keytx: Sender<[u8; 32]>) {
     //let key = key_exchange(soc.try_clone().expect("failed to clone")).unwrap();
     let mut counter: u16 = 0;
-    let key = genpub();
+    let (key, secret) = genpub();
     let packet = seri_packet_crypto(key);
+    soc.send(&packet).expect("Failed to send encryption packet");
 
-    soc.send(&packet);
+    println!("Getting key");
+    let pubkey = cryptrx.recv().expect("Failed to get key.");
+    println!("Got key");
+    let enc = compute_key(pubkey, secret, key);
+    
+    keytx.send(enc).expect("Failed to send encrypted packet.");
 
     for r in rx {        
        counter+=1;
        //println!("Sending {} bytes", r.len());
-       let to_send = seri_packet_audio(r, 1, counter);
+       let to_send = seri_packet_audio(r, 1, counter, enc);
        soc.send(&to_send).expect("Failed to send.");
     }
 
 }
 
 
-pub fn recv_loop(soc: UdpSocket, mut producer: impl ringbuf::traits::Producer<Item = f32>) {
+pub fn recv_loop(soc: UdpSocket, mut producer: impl ringbuf::traits::Producer<Item = f32>, tx: Sender<PublicKey>, keyrx: Receiver<[u8; 32]>) {
     let mut buf = [0u8; 4096];
 
     //packet outline should look like [type(1)][seqnum(2)][audio(960)]
@@ -71,15 +81,23 @@ pub fn recv_loop(soc: UdpSocket, mut producer: impl ringbuf::traits::Producer<It
    let mut jitbuff: BTreeMap<u16, Vec<f32>> = BTreeMap::new();
    let mut expected_next: Option<u16> = Some(1);
    let max_wait = 5;
+   let mut key: Option<[u8; 32]> = None;
     loop {
         match soc.recv(&mut buf) {
             Ok(len) => {
-                if (len - 4) % 4 != 0 { continue; }
+
+                if len < 28{
+                    continue;
+                }
 
                 if buf[0] == 0 {
-                    
+                   let bytes: [u8; 32] = buf[2..34].try_into().expect("Failed to get key.");
+                   let pubkey = PublicKey::from(bytes);
+                   tx.send(pubkey); 
+                   key = Some(keyrx.recv().expect("Failed to get key."));
                 } else { 
-                    let samples: Vec<f32> = cast_slice(&buf[4..len]).to_vec();
+                    let nonce: [u8; 24] = buf[4..28].try_into().expect("Failed to convert nonce");
+                    let samples = chacha::decrypt(key.clone().expect("Confusion."), nonce, &buf[28..len]);
 
                     let seqnum = u16::from_le_bytes([buf[2], buf[3]]);
 
@@ -88,7 +106,7 @@ pub fn recv_loop(soc: UdpSocket, mut producer: impl ringbuf::traits::Producer<It
 
                     if let Some(seq) = expected_next {
                         if let Some(frame) = jitbuff.remove(&seq) {
-                            for s in samples {
+                            for s in frame {
                                 let _ = producer.try_push(s);
                             }
                             expected_next = Some(seq.wrapping_add(1));

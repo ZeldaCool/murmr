@@ -6,9 +6,9 @@ use hkdf::Hkdf;
 
 pub mod chacha;
 
-pub fn genpub() -> PublicKey {
+pub fn genpub() -> (PublicKey, EphemeralSecret) {
     let secret = EphemeralSecret::random_from_rng(OsRng);
-    PublicKey::from(&secret)
+    (PublicKey::from(&secret), secret)
 }
 pub fn compute_key(recvkey: PublicKey, secret: EphemeralSecret, pubkey: PublicKey) -> [u8; 32] {
     let shared = secret.diffie_hellman(&recvkey);

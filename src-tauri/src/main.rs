@@ -9,7 +9,6 @@
 mod audio;
 mod net;
 mod crypto;
-use tokio::sync::mpsc::{Sender, Receiver};
 use std::net::UdpSocket;
 use std::thread;
 use murmr_lib::{AppState, run_tauri};

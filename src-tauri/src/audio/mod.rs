@@ -5,7 +5,6 @@ use ringbuf::{
 };
 use bytemuck::cast_slice;
 use std::sync::mpsc::{channel, Sender, Receiver};
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering::Relaxed;
 use crate::AppState;
 use std::sync::Arc;
@@ -57,17 +56,6 @@ pub fn audio_loop() -> anyhow::Result<()>  {
 }
 
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PacketLayout {
-    //header portion
-    payloadkind: u8,
-    //seqnum: u16,
-    //for now, just payloadkind. I'm lazy, alright??????
-    //nonce: [u8; 24],
-    //payload(CRAZY NOT LIKE THAT'S VAR NAME...)
-    payload: Vec<f32>, 
-
-}
 
 pub fn audio_input(tx: Sender<Vec<f32>>, mute: Arc<AtomicBool>, vol: Arc<AtomicU8>) {
     let host = cpal::default_host();
@@ -81,10 +69,11 @@ pub fn audio_input(tx: Sender<Vec<f32>>, mute: Arc<AtomicBool>, vol: Arc<AtomicU
     let inputfn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             //println!("Sending data of len: {}", data.len());
             for sample in data {
-                if !mute.load(Relaxed){ 
+                if !mute.load(Relaxed) { 
                     send_vec.push(*sample);
 
                     if send_vec.len() == SIZE {
+                        println!("[MIC] sending {} samples", data.len());
                         let x = send_vec.clone();
                         let _ = tx.send(x);
                         send_vec.clear();
@@ -110,7 +99,7 @@ pub fn audio_output(mut consumer: impl ringbuf::traits::Consumer<Item = f32> + s
     let outputfn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         //println!("speaker request: {}", data.len());
         for sample in data {
-            *sample = consumer.try_pop().unwrap_or(0.0) * 3.0;
+            *sample = consumer.try_pop().unwrap_or(2.0) * 3.0;
         }
     };
 
