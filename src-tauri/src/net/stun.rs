@@ -2,12 +2,13 @@ use std::net::{UdpSocket, SocketAddr, Ipv4Addr};
 use rand::prelude::*;
 use std::time::{Duration, Instant};
 use std::thread;
+use std::sync::Arc;
 
 const MSG_TYPE: [u8; 2] = 0x0001_u16.to_be_bytes();
 const SIZE: [u8; 2] = 0x0000_u16.to_be_bytes();
 const MAGIC_COOKIE: [u8; 4] = 0x2112A442_u32.to_be_bytes();
 
-pub fn stun_connect(soc: UdpSocket) -> Option<String> {
+pub fn stun_connect(soc: Arc<UdpSocket>) -> Option<String> {
     let mut rng = rand::rng();
     let mut packet = [0u8; 20];
     let mut recvbuf = [0u8; 512];
@@ -96,7 +97,7 @@ pub fn get_ip(buf: &[u8], tid: [u8; 12], len: usize ) -> Option<String> {
     None
 }
 
-pub fn hole_punch(soc: UdpSocket, ip: String) {
+pub fn hole_punch(soc: Arc<UdpSocket>, ip: String) {
     let packet = [3u8];
     let mut buf = [0u8; 3];
 

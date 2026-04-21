@@ -64,22 +64,23 @@ pub fn audio_input(tx: Sender<Vec<f32>>, mute: Arc<AtomicBool>, vol: Arc<AtomicU
     
     const SIZE: usize = 960;
 
-    let mut send_vec = Vec::with_capacity(SIZE);
+    let mut buffer = [0f32; SIZE];
+    let mut index = 0;
 
     let inputfn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             //println!("Sending data of len: {}", data.len());
-            for sample in data {
+            for &sample in data {
                 if !mute.load(Relaxed) { 
-                    send_vec.push(*sample);
+                     buffer[index] = sample;
+                     index += 1;
 
-                    if send_vec.len() == SIZE {
-                        println!("[MIC] sending {} samples", data.len());
-                        let x = send_vec.clone();
-                        let _ = tx.send(x);
-                        send_vec.clear();
+                     if index == SIZE {
+                        let packet = buffer.to_vec();
+                        let _ = tx.send(packet);
+                        index = 0;
                     }
-}
                 }
+            }
     };
 
     let input_stream = inputdev.as_ref().expect("Got Option::None").build_input_stream(&config, inputfn, err_fn, None).expect("Failure when trying to build input stream.");
@@ -99,7 +100,7 @@ pub fn audio_output(mut consumer: impl ringbuf::traits::Consumer<Item = f32> + s
     let outputfn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         //println!("speaker request: {}", data.len());
         for sample in data {
-            *sample = consumer.try_pop().unwrap_or(2.0) * 3.0;
+            *sample = consumer.try_pop().unwrap_or(0.0);
         }
     };
 

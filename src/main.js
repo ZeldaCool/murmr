@@ -1,6 +1,8 @@
 const { invoke } = window.__TAURI__.core;
 
 let isConnected = false;
+let lanIp;
+let Ip;
 
 window.connect = async function() {
   const ip = document.getElementById("ip").value;
@@ -16,11 +18,44 @@ window.connect = async function() {
 
 }
 
+
 function render() {
   document.getElementById("conscreen").style.display =
     isConnected ? "none" : "block";
   document.getElementById("callscrn").style.display = 
     isConnected ? "block" : "none";
+}
+
+window.getiplan = async function() {
+    lanIp = document.querySelector("#ipp");
+    try {
+      lanIp.textContent = await invoke("getlanip");
+      let ip = await invoke("getlanip");
+      console.log("Ip: " + ip);
+    } catch (err) {
+      console.log("Error: " + err);
+    }
+}
+
+window.getip = async function() {
+  Ip = document.querySelector("#ippp");
+  try {
+    Ip.textContent = await invoke("getip");
+    let ip = await invoke("getip");
+    console.log("Ip: " + ip);
+  } catch (err) {
+    console.log("Error: " + err);
+  }
+}
+
+window.getiplantwo = async function() {
+  lanIp = document.querySelector("#ippp");
+    try {
+      lanIp.textContent = await invoke("getlanip");
+    } catch (err) {
+      console.log("Error: " + err);
+    }
+
 }
 
 window.mute = async function() {

@@ -3,8 +3,10 @@ use std::thread;
 use bytemuck::cast_slice;
 use std::sync::mpsc::{Sender, Receiver};
 use crate::crypto::*;
+use crate::codec::*;
 use std::collections::BTreeMap;
 use x25519_dalek::PublicKey; 
+use std::sync::Arc;
 pub mod stun;
 
 pub fn test_client() -> anyhow::Result<()> {
@@ -21,10 +23,10 @@ pub fn test_client() -> anyhow::Result<()> {
 }
 pub fn seri_packet_audio(audio: Vec<f32>, kind: u8, seqnum: u16, key: [u8; 32]) -> Vec<u8> {
     
-    let first_slice = cast_slice(&audio);
-    
+    let first_slice = f32_to_i16(audio);
+    let aud = linear_to_alaw(first_slice);
     let nonce = chacha::nonce_gen(); 
-    let enc_packets = chacha::chacha(key, nonce, first_slice).unwrap();
+    let enc_packets = chacha::chacha(key, nonce, &aud).unwrap();
 
 
     let mut buf = Vec::new();
@@ -49,7 +51,7 @@ pub fn seri_packet_crypto(key: PublicKey) -> Vec<u8>{
 
     buf
 }
-pub fn send_loop(rx: Receiver<Vec<f32>>, soc: UdpSocket, cryptrx: Receiver<PublicKey>, keytx: Sender<[u8; 32]>) {
+pub fn send_loop(rx: Receiver<Vec<f32>>, soc: Arc<UdpSocket>, cryptrx: Receiver<PublicKey>, keytx: Sender<[u8; 32]>) {
     //let key = key_exchange(soc.try_clone().expect("failed to clone")).unwrap();
     let mut counter: u16 = 0;
     let (key, secret) = genpub();
@@ -73,7 +75,7 @@ pub fn send_loop(rx: Receiver<Vec<f32>>, soc: UdpSocket, cryptrx: Receiver<Publi
 }
 
 
-pub fn recv_loop(soc: UdpSocket, mut producer: impl ringbuf::traits::Producer<Item = f32>, tx: Sender<PublicKey>, keyrx: Receiver<[u8; 32]>) {
+pub fn recv_loop(soc: Arc<UdpSocket>, mut producer: impl ringbuf::traits::Producer<Item = f32>, tx: Sender<PublicKey>, keyrx: Receiver<[u8; 32]>) {
     let mut buf = [0u8; 4096];
 
     //packet outline should look like [type(1)][seqnum(2)][audio(960)]
@@ -98,6 +100,8 @@ pub fn recv_loop(soc: UdpSocket, mut producer: impl ringbuf::traits::Producer<It
                 } else { 
                     let nonce: [u8; 24] = buf[4..28].try_into().expect("Failed to convert nonce");
                     let samples = chacha::decrypt(key.clone().expect("Confusion."), nonce, &buf[28..len]);
+                   
+                    println!("decoded samples: {}", samples.len());
 
                     let seqnum = u16::from_le_bytes([buf[2], buf[3]]);
 

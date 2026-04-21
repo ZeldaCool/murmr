@@ -1,6 +1,7 @@
 pub mod crypto;
 pub mod net;
 pub mod audio;
+pub mod codec;
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -8,12 +9,15 @@ use std::sync::atomic::{AtomicBool, AtomicU8};
 use std::sync::atomic::Ordering::Relaxed;
 use anyhow::anyhow;
 use std::net::UdpSocket;
+use std::net::Ipv4Addr;
 use std::thread;
 use ringbuf::{
     traits::{Consumer, Producer, Split},
     HeapRb,
 };
+use std::str::FromStr;
 use crate::audio::audio_loop;
+use crate::net::stun::*;
 use tauri::{Builder, Manager};
 use x25519_dalek::PublicKey;
 
@@ -27,30 +31,26 @@ fn greet(name: &str) -> String {
 
 #[tauri::command]
 fn getlanip(state: tauri::State<AppState>) -> String {
-    let soc = {
-        let guard = state.socket.lock().unwrap();
-
-        let soc = guard
-            .as_ref()
-            .ok_or("Socket not initialized");
-
-        soc.expect("Couldn't get socket").try_clone().expect("failed to clone socket")
-    }; 
+    let soc = state.socket.clone();
     soc.local_addr().unwrap().to_string()    
 }
+
+
 #[tauri::command]
-fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String>{
-    let socket = UdpSocket::bind("0.0.0.0").expect("Failed to bind socket");
-    let send_socket = socket.try_clone().expect("Failed to clone socket");
+fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String> {
+    let socket = state.socket.clone(); 
+   
+    let hole = socket.clone();
+    if !is_lan(Ipv4Addr::from_str(ip).unwrap()) {
+        hole_punch(hole, ip.to_string());
+    }
+
+    let send_socket = socket.clone();
+    let recv_socket = socket.clone();
     socket.connect(ip.to_string()).expect("Failed to connect");
 
     let (tx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
     
-    {
-        let mut guard = state.socket.lock().unwrap();
-        *guard = Some(socket.try_clone().expect("Failed to unwrap socket"));
-    }
-
     //shift to oneshot channels
     let (crytx, cryrx) = std::sync::mpsc::channel::<PublicKey>();
 
@@ -61,7 +61,7 @@ fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String>{
 
 
     thread::spawn(move || {
-       net::recv_loop(socket, producer, crytx, keyrx);     
+       net::recv_loop(recv_socket, producer, crytx, keyrx);     
     });
 
     thread::spawn(move || {
@@ -96,17 +96,9 @@ fn toggle_mic(state: tauri::State<AppState>) {
 }
 
 #[tauri::command]
-fn getip(state: tauri::State<AppState>) -> String {
-    let soc = {
-        let guard = state.socket.lock().unwrap();
-
-        let soc = guard
-            .as_ref()
-            .ok_or("Socket not initialized");
-
-        soc.expect("Couldn't get socket").try_clone().expect("failed to clone socket")
-    }; 
-    net::stun::stun_connect(soc).expect("No IP supplied")
+fn getip(state: tauri::State<AppState>) -> Result<String, String> {
+    let soc = state.socket.clone();
+    net::stun::stun_connect(soc).ok_or("STUN failed".to_string())
 }
 
 #[tauri::command]
@@ -136,9 +128,10 @@ pub struct AppState {
     volume: Arc<AtomicU8>,
     screenshare: Arc<AtomicBool>, //for future use
     peercount: Arc<AtomicU8>,  
-    socket: Mutex<Option<std::net::UdpSocket>>,
+    socket: Arc<std::net::UdpSocket>,
     peer: Mutex<Option<String>>,
     key: Mutex<Option<[u8; 32]>>,
+    ip: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
@@ -148,9 +141,10 @@ impl Default for AppState {
             volume: Arc::new(AtomicU8::new(50.into())),
             screenshare: Arc::new(AtomicBool::new(false.into())),
             peercount: Arc::new(AtomicU8::new(0.into())),
-            socket: None.into(),
+            socket: Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap()).into(),
             peer: None.into(),
             key: None.into(),
+            ip: Mutex::new(Some(String::new())),
         }
     }
         
@@ -162,7 +156,7 @@ pub fn run_tauri() -> Result<(), String>{
       app.manage(AppState::default());
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![connect, toggle_mic, audio_change, set_key])
+    .invoke_handler(tauri::generate_handler![connect, toggle_mic, audio_change, set_key, getlanip, getip])
     .run(tauri::generate_context!())
     .unwrap();
     Ok(())

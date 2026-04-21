@@ -9,6 +9,7 @@
 mod audio;
 mod net;
 mod crypto;
+mod codec;
 use std::net::UdpSocket;
 use std::thread;
 use murmr_lib::{AppState, run_tauri};
