@@ -1,5 +1,6 @@
 use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::thread;
 use bytemuck::cast_slice;
 use std::sync::mpsc::{Sender, Receiver};
@@ -11,11 +12,11 @@ use std::sync::Arc;
 pub mod stun;
 
 
-pub fn test_client() -> anyhow::Result<()> {
+pub fn test_client(running: Arc<AtomicBool>) -> anyhow::Result<()> {
     let socket = UdpSocket::bind("127.0.0.1:5000")?;
     let mut buf = [0u8; 4096];
 
-    loop {
+    while running.load(Ordering::Relaxed) {
         let (bytes_received, src_addr) = socket.recv_from(&mut buf)?;
         //println!("Recieved {} bytes", bytes_received);
         socket.send_to(&buf[..bytes_received], src_addr)?;
@@ -112,8 +113,6 @@ pub fn recv_loop(soc: Arc<UdpSocket>, mut producer: impl ringbuf::traits::Produc
                     let nonce: [u8; 24] = buf[4..28].try_into().expect("Failed to convert nonce");
                     let samples = chacha::decrypt(key.clone().expect("Confusion."), nonce, &buf[28..len]);
                    
-                    println!("decoded samples: {}", samples.len());
-
                     let seqnum = u16::from_le_bytes([buf[2], buf[3]]);
 
                     jitbuff.insert(seqnum, samples.clone());

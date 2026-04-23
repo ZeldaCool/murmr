@@ -71,6 +71,7 @@ fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String> {
     let running_send = state.running.clone();
     let running_input = state.running.clone();
     let running_output = state.running.clone();
+    let running_test = state.running.clone();
 
 
     let (tx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
@@ -100,7 +101,7 @@ fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String> {
     });
 
     thread::spawn(move || {
-        net::test_client();
+        net::test_client(running_test);
     });
 
     thread::spawn(move || {
