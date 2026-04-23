@@ -1,4 +1,5 @@
 use std::net::UdpSocket;
+use std::sync::atomic::AtomicBool;
 use std::thread;
 use bytemuck::cast_slice;
 use std::sync::mpsc::{Sender, Receiver};
@@ -8,6 +9,7 @@ use std::collections::BTreeMap;
 use x25519_dalek::PublicKey; 
 use std::sync::Arc;
 pub mod stun;
+
 
 pub fn test_client() -> anyhow::Result<()> {
     let socket = UdpSocket::bind("127.0.0.1:5000")?;
@@ -51,7 +53,8 @@ pub fn seri_packet_crypto(key: PublicKey) -> Vec<u8>{
 
     buf
 }
-pub fn send_loop(rx: Receiver<Vec<f32>>, soc: Arc<UdpSocket>, cryptrx: Receiver<PublicKey>, keytx: Sender<[u8; 32]>) {
+
+pub fn send_loop(rx: Receiver<Vec<f32>>, soc: Arc<UdpSocket>, cryptrx: Receiver<PublicKey>, keytx: Sender<[u8; 32]>, running: Arc<AtomicBool>) {
     //let key = key_exchange(soc.try_clone().expect("failed to clone")).unwrap();
     let mut counter: u16 = 0;
     let (key, secret) = genpub();
@@ -65,17 +68,21 @@ pub fn send_loop(rx: Receiver<Vec<f32>>, soc: Arc<UdpSocket>, cryptrx: Receiver<
     
     keytx.send(enc).expect("Failed to send encrypted packet.");
 
-    for r in rx {        
-       counter+=1;
-       //println!("Sending {} bytes", r.len());
-       let to_send = seri_packet_audio(r, 1, counter, enc);
-       soc.send(&to_send).expect("Failed to send.");
+    for r in rx {
+       if !running.load(std::sync::atomic::Ordering::Relaxed) {
+           break;
+       } else {  
+           counter+=1;
+           //println!("Sending {} bytes", r.len());
+           let to_send = seri_packet_audio(r, 1, counter, enc);
+           soc.send(&to_send).expect("Failed to send.");
+        }
     }
 
 }
 
 
-pub fn recv_loop(soc: Arc<UdpSocket>, mut producer: impl ringbuf::traits::Producer<Item = f32>, tx: Sender<PublicKey>, keyrx: Receiver<[u8; 32]>) {
+pub fn recv_loop(soc: Arc<UdpSocket>, mut producer: impl ringbuf::traits::Producer<Item = f32>, tx: Sender<PublicKey>, keyrx: Receiver<[u8; 32]>, running: Arc<AtomicBool>) {
     let mut buf = [0u8; 4096];
 
     //packet outline should look like [type(1)][seqnum(2)][audio(960)]
@@ -84,9 +91,13 @@ pub fn recv_loop(soc: Arc<UdpSocket>, mut producer: impl ringbuf::traits::Produc
    let mut expected_next: Option<u16> = Some(1);
    let max_wait = 5;
    let mut key: Option<[u8; 32]> = None;
-    loop {
+    while running.load(std::sync::atomic::Ordering::Relaxed) {
         match soc.recv(&mut buf) {
             Ok(len) => {
+
+                if &buf[..len] == b"GOODBYE" {
+                    break;
+                }
 
                 if len < 28{
                     continue;
