@@ -13,7 +13,7 @@ window.connect = async function() {
     isConnected = true;
     render();
   } catch (err) {
-    console.log("Error :(");
+    console.log("Error :( " + err);
   }
 
 }
@@ -37,6 +37,16 @@ window.getiplan = async function() {
     }
 }
 
+window.leave = async function() {
+  try {
+    await invoke("leave");
+    document.getElementById("conscreen").style.display = "block";
+    document.getElementById("callscrn").style.display = "none";
+  } catch (err) {
+    console.log("Error: " + err);
+  }
+}
+
 window.getip = async function() {
   Ip = document.querySelector("#ippp");
   try {
@@ -48,15 +58,6 @@ window.getip = async function() {
   }
 }
 
-window.getiplantwo = async function() {
-  lanIp = document.querySelector("#ippp");
-    try {
-      lanIp.textContent = await invoke("getlanip");
-    } catch (err) {
-      console.log("Error: " + err);
-    }
-
-}
 
 window.mute = async function() {
   try {
@@ -67,18 +68,4 @@ window.mute = async function() {
   }
 }
 
-window.volup = async function() {
-  try {
-    console.log("Volume up");
-  } catch (err) {
-    console.log("Error :(");
-  }
-}
 
-window.voldown = async function() {
-  try {
-    console.log("Volume down");
-  } catch (err) {
-    console.log("Error :(");
-  }  
-}

@@ -16,18 +16,10 @@ use ringbuf::{
     HeapRb,
 };
 use std::str::FromStr;
-use crate::audio::audio_loop;
 use crate::net::stun::*;
 use tauri::{Builder, Manager};
 use x25519_dalek::PublicKey;
 
-//TODO: Add simple if statement on connect to check if lan or not, if not, hole punch. Add api call
-//for getting public-facing IP
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 #[tauri::command]
 fn getlanip(state: tauri::State<AppState>) -> String {
@@ -35,19 +27,51 @@ fn getlanip(state: tauri::State<AppState>) -> String {
     soc.local_addr().unwrap().to_string()    
 }
 
+#[tauri::command]
+fn leave(state: tauri::State<AppState>) {
+    let soc = state.socket.clone();
+
+    let peer_addr = state.peer.lock().unwrap().clone();
+
+    if let Some(peer_addr) = peer_addr {
+        soc.send_to(b"GOODBYE", peer_addr);
+    }
+    state.running.store(false, Relaxed);
+}
+
+
 
 #[tauri::command]
 fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String> {
     let socket = state.socket.clone(); 
-   
+    
+    *state.peer.lock().unwrap() = Some(ip.to_string());
+    state.running.store(true, Relaxed);
+
+    let addr = ip
+        .trim()
+        .parse::<std::net::SocketAddr>()
+        .map_err(|_| format!("Invalid socket address (ip:port expected): {}", ip))?;
+
+    let ip_addr = match addr.ip() {
+        std::net::IpAddr::V4(v4) => v4,
+        _ => return Err("IPv6 not supported".into()),
+    };
+
     let hole = socket.clone();
-    if !is_lan(Ipv4Addr::from_str(ip).unwrap()) {
+    if !is_lan(ip_addr) {
         hole_punch(hole, ip.to_string());
     }
 
     let send_socket = socket.clone();
     let recv_socket = socket.clone();
-    socket.connect(ip.to_string()).expect("Failed to connect");
+    socket.connect(addr).expect("Failed to connect");
+
+    let running_recv = state.running.clone();
+    let running_send = state.running.clone();
+    let running_input = state.running.clone();
+    let running_output = state.running.clone();
+
 
     let (tx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
     
@@ -61,18 +85,18 @@ fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String> {
 
 
     thread::spawn(move || {
-       net::recv_loop(recv_socket, producer, crytx, keyrx);     
+       net::recv_loop(recv_socket, producer, crytx, keyrx, running_recv);     
     });
 
     thread::spawn(move || {
-        net::send_loop(rx, send_socket, cryrx, keytx);
+        net::send_loop(rx, send_socket, cryrx, keytx, running_send);
     });
     
     let mut mute = state.mute.clone(); 
     let mut vol = state.volume.clone();
 
     thread::spawn(move || {
-        audio::audio_input(tx, mute, vol);
+        audio::audio_input(tx, mute, vol, running_input);
     });
 
     thread::spawn(move || {
@@ -80,7 +104,7 @@ fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String> {
     });
 
     thread::spawn(move || {
-        audio::audio_output(consumer);
+        audio::audio_output(consumer, running_output);
     });
 
     Ok(())
@@ -127,7 +151,8 @@ pub struct AppState {
     mute: Arc<AtomicBool>,
     volume: Arc<AtomicU8>,
     screenshare: Arc<AtomicBool>, //for future use
-    peercount: Arc<AtomicU8>,  
+    peercount: Arc<AtomicU8>, 
+    running: Arc<AtomicBool>,
     socket: Arc<std::net::UdpSocket>,
     peer: Mutex<Option<String>>,
     key: Mutex<Option<[u8; 32]>>,
@@ -141,8 +166,9 @@ impl Default for AppState {
             volume: Arc::new(AtomicU8::new(50.into())),
             screenshare: Arc::new(AtomicBool::new(false.into())),
             peercount: Arc::new(AtomicU8::new(0.into())),
+            running: Arc::new(AtomicBool::new(false)),
             socket: Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap()).into(),
-            peer: None.into(),
+            peer: Mutex::new(None.into()),
             key: None.into(),
             ip: Mutex::new(Some(String::new())),
         }
@@ -156,7 +182,7 @@ pub fn run_tauri() -> Result<(), String>{
       app.manage(AppState::default());
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![connect, toggle_mic, audio_change, set_key, getlanip, getip])
+    .invoke_handler(tauri::generate_handler![connect, toggle_mic, audio_change, set_key, getlanip, getip, leave])
     .run(tauri::generate_context!())
     .unwrap();
     Ok(())

@@ -130,6 +130,8 @@ pub fn is_lan(ip: Ipv4Addr) -> bool {
 
         [172, b, _, _] if(16..=31).contains(&b) => true,
 
+        [169, 254, _, _] => true,
+
         _ => false,
     }
 }
