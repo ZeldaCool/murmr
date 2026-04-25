@@ -1,4 +1,4 @@
-use std::net::{UdpSocket, SocketAddr, Ipv4Addr};
+use std::net::{UdpSocket, SocketAddr, Ipv4Addr, ToSocketAddrs, IpAddr};
 use rand::prelude::*;
 use std::time::{Duration, Instant};
 use std::thread;
@@ -9,6 +9,8 @@ const SIZE: [u8; 2] = 0x0000_u16.to_be_bytes();
 const MAGIC_COOKIE: [u8; 4] = 0x2112A442_u32.to_be_bytes();
 
 pub fn stun_connect(soc: Arc<UdpSocket>) -> Option<String> {
+
+    let addr = "stun.l.google.com:19302".to_socket_addrs().unwrap().filter(|a| a.is_ipv4()).next().unwrap();
     let mut rng = rand::rng();
     let mut packet = [0u8; 20];
     let mut recvbuf = [0u8; 512];
@@ -20,9 +22,22 @@ pub fn stun_connect(soc: Arc<UdpSocket>) -> Option<String> {
 
     packet[8..20].copy_from_slice(&tid);
 
-    soc.send_to(&packet, "stun.l.google.com:19302");
+    println!("Sending...");
 
-    let (res, src) = soc.recv_from(&mut recvbuf).expect("Error getting response.");
+    soc.send_to(&packet, addr).expect("Failed to send.");
+
+    println!("Sucess! Packet sent.");
+
+    let (res, src) = match soc.recv_from(&mut recvbuf) {
+        Ok(v) => {
+                println!("Got it!");
+                v
+            },
+        Err(_) => {
+            println!("Didn't get it");
+            return None
+        },
+    };
     
     let ip = get_ip(&recvbuf, tid, res);
 
