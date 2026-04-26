@@ -1,4 +1,4 @@
-use std::net::UdpSocket;
+use tokio::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread;
@@ -12,14 +12,14 @@ use std::sync::Arc;
 pub mod stun;
 
 
-pub fn test_client(running: Arc<AtomicBool>) -> anyhow::Result<()> {
-    let socket = UdpSocket::bind("127.0.0.1:5000")?;
+pub async fn test_client(running: Arc<AtomicBool>) -> anyhow::Result<()> {
+    let socket = UdpSocket::bind("127.0.0.1:5000").await?;
     let mut buf = [0u8; 4096];
 
     while running.load(Ordering::Relaxed) {
-        let (bytes_received, src_addr) = socket.recv_from(&mut buf)?;
+        let (bytes_received, src_addr) = socket.recv_from(&mut buf).await?;
         //println!("Recieved {} bytes", bytes_received);
-        socket.send_to(&buf[..bytes_received], src_addr)?;
+        socket.send_to(&buf[..bytes_received], src_addr).await?;
     }
 
     Ok(())
@@ -55,12 +55,12 @@ pub fn seri_packet_crypto(key: PublicKey) -> Vec<u8>{
     buf
 }
 
-pub fn send_loop(rx: Receiver<Vec<f32>>, soc: Arc<UdpSocket>, cryptrx: Receiver<PublicKey>, keytx: Sender<[u8; 32]>, running: Arc<AtomicBool>) {
+pub async fn send_loop(rx: Receiver<Vec<f32>>, soc: Arc<UdpSocket>, cryptrx: Receiver<PublicKey>, keytx: Sender<[u8; 32]>, running: Arc<AtomicBool>) {
     //let key = key_exchange(soc.try_clone().expect("failed to clone")).unwrap();
     let mut counter: u16 = 0;
     let (key, secret) = genpub();
     let packet = seri_packet_crypto(key);
-    soc.send(&packet).expect("Failed to send encryption packet");
+    soc.send(&packet).await.expect("Failed to send encryption packet");
 
     println!("Getting key");
     let pubkey = cryptrx.recv().expect("Failed to get key.");
@@ -76,14 +76,14 @@ pub fn send_loop(rx: Receiver<Vec<f32>>, soc: Arc<UdpSocket>, cryptrx: Receiver<
            counter+=1;
            //println!("Sending {} bytes", r.len());
            let to_send = seri_packet_audio(r, 1, counter, enc);
-           soc.send(&to_send).expect("Failed to send.");
+           soc.send(&to_send).await.expect("Failed to send.");
         }
     }
 
 }
 
 
-pub fn recv_loop(soc: Arc<UdpSocket>, mut producer: impl ringbuf::traits::Producer<Item = f32>, tx: Sender<PublicKey>, keyrx: Receiver<[u8; 32]>, running: Arc<AtomicBool>) {
+pub async fn recv_loop(soc: Arc<UdpSocket>, mut producer: impl ringbuf::traits::Producer<Item = f32>, tx: Sender<PublicKey>, keyrx: Receiver<[u8; 32]>, running: Arc<AtomicBool>) {
     let mut buf = [0u8; 4096];
 
     //packet outline should look like [type(1)][seqnum(2)][audio(960)]
@@ -93,7 +93,7 @@ pub fn recv_loop(soc: Arc<UdpSocket>, mut producer: impl ringbuf::traits::Produc
    let max_wait = 5;
    let mut key: Option<[u8; 32]> = None;
     while running.load(std::sync::atomic::Ordering::Relaxed) {
-        match soc.recv(&mut buf) {
+        match soc.recv(&mut buf).await {
             Ok(len) => {
 
                 if &buf[..len] == b"GOODBYE" {

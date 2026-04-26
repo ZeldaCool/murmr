@@ -1,4 +1,5 @@
-use std::net::{UdpSocket, SocketAddr, Ipv4Addr, ToSocketAddrs, IpAddr};
+use std::net::{SocketAddr, Ipv4Addr, ToSocketAddrs, IpAddr};
+use tokio::net::UdpSocket;
 use rand::prelude::*;
 use std::time::{Duration, Instant};
 use std::thread;
@@ -8,7 +9,7 @@ const MSG_TYPE: [u8; 2] = 0x0001_u16.to_be_bytes();
 const SIZE: [u8; 2] = 0x0000_u16.to_be_bytes();
 const MAGIC_COOKIE: [u8; 4] = 0x2112A442_u32.to_be_bytes();
 
-pub fn stun_connect(soc: Arc<UdpSocket>) -> Option<String> {
+pub async fn stun_connect(soc: Arc<UdpSocket>) -> Option<String> {
 
     let addr = "stun.l.google.com:19302".to_socket_addrs().unwrap().filter(|a| a.is_ipv4()).next().unwrap();
     let mut rng = rand::rng();
@@ -24,11 +25,11 @@ pub fn stun_connect(soc: Arc<UdpSocket>) -> Option<String> {
 
     println!("Sending...");
 
-    soc.send_to(&packet, addr).expect("Failed to send.");
+    soc.send_to(&packet, addr).await.expect("Failed to send.");
 
     println!("Sucess! Packet sent.");
 
-    let (res, src) = match soc.recv_from(&mut recvbuf) {
+    let (res, src) = match soc.recv_from(&mut recvbuf).await {
         Ok(v) => {
                 println!("Got it!");
                 v
@@ -112,7 +113,7 @@ pub fn get_ip(buf: &[u8], tid: [u8; 12], len: usize ) -> Option<String> {
     None
 }
 
-pub fn hole_punch(soc: Arc<UdpSocket>, ip: String) {
+pub async fn hole_punch(soc: Arc<UdpSocket>, ip: String) {
     let packet = [3u8];
     let mut buf = [0u8; 3];
 
@@ -124,7 +125,7 @@ pub fn hole_punch(soc: Arc<UdpSocket>, ip: String) {
     while start.elapsed() < dur {
        soc.send_to(&packet, &ipp);
     
-       if let Ok((len, src)) = soc.recv_from(&mut buf) {
+       if let Ok((len, src)) = soc.recv_from(&mut buf).await {
            if src == ipp && len == packet.len() {
                 break;
            }

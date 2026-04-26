@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU8};
 use std::sync::atomic::Ordering::Relaxed;
 use anyhow::anyhow;
-use std::net::UdpSocket;
+use tokio::net::UdpSocket;
 use std::net::Ipv4Addr;
 use std::thread;
 use ringbuf::{
@@ -42,7 +42,7 @@ fn leave(state: tauri::State<AppState>) {
 
 
 #[tauri::command]
-fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String> {
+async fn connect(ip: &str, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let socket = state.socket.clone(); 
     
     *state.peer.lock().unwrap() = Some(ip.to_string());
@@ -60,12 +60,12 @@ fn connect(ip: &str, state: tauri::State<AppState>) -> Result<(), String> {
 
     let hole = socket.clone();
     if !is_lan(ip_addr) {
-        hole_punch(hole, ip.to_string());
+        hole_punch(hole, ip.to_string()).await;
     }
 
     let send_socket = socket.clone();
     let recv_socket = socket.clone();
-    socket.connect(addr).expect("Failed to connect");
+    socket.connect(addr).await.expect("Failed to connect");
 
     let running_recv = state.running.clone();
     let running_send = state.running.clone();
@@ -121,9 +121,9 @@ fn toggle_mic(state: tauri::State<AppState>) {
 }
 
 #[tauri::command]
-fn getip(state: tauri::State<AppState>) -> Result<String, String> {
+async fn getip(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let soc = state.socket.clone();
-    net::stun::stun_connect(soc).ok_or("STUN failed".to_string())
+    net::stun::stun_connect(soc).await.ok_or("STUN failed".to_string())
 }
 
 #[tauri::command]
@@ -154,21 +154,21 @@ pub struct AppState {
     screenshare: Arc<AtomicBool>, //for future use
     peercount: Arc<AtomicU8>, 
     running: Arc<AtomicBool>,
-    socket: Arc<std::net::UdpSocket>,
+    socket: Arc<UdpSocket>,
     peer: Mutex<Option<String>>,
     key: Mutex<Option<[u8; 32]>>,
     ip: Mutex<Option<String>>,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
+impl AppState {
+    async fn new() -> Self {
         Self {
             mute: Arc::new(AtomicBool::new(false.into())),
             volume: Arc::new(AtomicU8::new(50.into())),
             screenshare: Arc::new(AtomicBool::new(false.into())),
             peercount: Arc::new(AtomicU8::new(0.into())),
             running: Arc::new(AtomicBool::new(false)),
-            socket: Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap()).into(),
+            socket: Arc::new(UdpSocket::bind("0.0.0.0:0").await.unwrap()).into(),
             peer: Mutex::new(None.into()),
             key: None.into(),
             ip: Mutex::new(Some(String::new())),
@@ -180,7 +180,7 @@ impl Default for AppState {
 pub fn run_tauri() -> Result<(), String>{
     Builder::default()
     .setup(|app| {
-      app.manage(AppState::default());
+      app.manage(AppState::new());
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![connect, toggle_mic, audio_change, set_key, getlanip, getip, leave])
